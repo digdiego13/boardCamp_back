@@ -20,6 +20,8 @@ const connection = new Pool(
       }
 )
 
+// ------- Categories
+
 app.get('/categories', async (req, res) => {
     try{
         const promise = await connection.query('SELECT * FROM categories;');
@@ -49,6 +51,9 @@ app.post('/categories', async (req, res) => {
     }
     
 })
+
+// ------- games
+
 
 app.get('/games', async (req, res) => {
 
@@ -85,6 +90,8 @@ app.post('/games', async (req, res) => {
     }
     
 })
+
+// ------- customers
 
 
 app.get('/customers', async (req, res) => {
@@ -157,6 +164,7 @@ app.put('/customers/:id', async (req, res) => {
 });
 
 
+// ------- rentals
 
 
 app.get('/rentals', async (req, res) => {
@@ -219,7 +227,7 @@ app.post('/rentals', async (req, res) => {
 
     try {
         const clientReq = req.body;
-        const today = dayjs().format('YYYY/MM/DD');
+        const today = dayjs().format('YYYY-MM-DD');
         const pricePerDay = await connection.query('SELECT "pricePerDay" FROM games WHERE id = $1', [Number(clientReq.gameId)]);
         const originalPrice = Number(Number(clientReq.daysRented) * Number(pricePerDay.rows[0].pricePerDay));
         console.log(originalPrice);
@@ -239,10 +247,23 @@ app.post('/rentals/:id/return', async (req, res) => {
 
     try {
         const id = Number(req.params.id);
-        const clientReq = req.body;
-        const today = dayjs().format('YYYY/MM/DD');
-        const promise = await connection.query('INSERT INTO rentals ("customerId", "gameId", "rentDate", "daysRented", "returnDate", "originalPrice", "delayFee") VALUES ($1, $2, $3, $4, $5, $6, $7);', [clientReq.customerId, clientReq.gameId, today, clientReq.daysRented, null, originalPrice, null]);
-        console.log(promise.rows);
+        const today = dayjs()
+        const rentalInfo = await connection.query(`SELECT "rentDate", "daysRented", "originalPrice" FROM rentals WHERE id = $1;`, [id]);
+        const {rentDate, daysRented, originalPrice} = rentalInfo.rows[0];
+        const rentDateFront = dayjs(rentDate)
+        const delayDays = (today.diff(rentDateFront, 'day') - daysRented);
+        const pricePerDay = originalPrice / daysRented;
+        let delayFee = Number(delayDays * pricePerDay);
+        
+        if(delayDays < 1 ) {
+            delayFee = 0;
+         }
+         console.log(delayFee);
+         const promise = await connection.query(`UPDATE rentals SET 
+         "returnDate" = $1,
+         "delayFee" = $2
+         WHERE id = $3;`, [today.format('YYYY-MM-DD'), delayFee, id]);
+         console.log(promise.rows);
         res.send(promise.rows);
     }
     catch(error) {
