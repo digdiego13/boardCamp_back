@@ -20,11 +20,11 @@ const connection = new Pool(
       }
 )
 
-const newCategorySchema = Joi.object().length(1).keys({
+const newCategorySchema = Joi.object().keys({
     name: Joi.string().alphanum().min(1).max(30).required()
 });
 
-const newGameSchema = Joi.object().length(5).keys({
+const newGameSchema = Joi.object().keys({
     name: Joi.string().min(1).max(30).required(),
     image: Joi.string().min(1).required(),
     stockTotal: Joi.number().integer().greater(0).required(),
@@ -166,11 +166,23 @@ app.get('/customers', async (req, res) => {
 
 
     try{
-        const promise = await connection.query('SELECT * FROM customers;');
+        const promise = await connection.query(`
+        SELECT * FROM customers
+            ${req.query.cpf ? 
+                `WHERE customers.cpf LIKE '${req.query.cpf}%'` 
+                : ""};
+        `);
+
+        if (promise.rows.length === 0) {
+            return res.sendStatus(404);
+        }
+        promise.rows.forEach(customer =>
+            customer.birthday = dayjs(customer.birthday).format('YYYY-MM-DD')
+        )
         res.send(promise.rows);
     }
     catch(error) {
-        return res.sendStatus(404);
+        return res.sendStatus(500);
     }
     
 })
@@ -180,12 +192,16 @@ app.get('/customers/:id', async (req, res) => {
 
     try{
         const id = Number(req.params.id);
-        console.log
         const promise = await connection.query('SELECT * FROM customers WHERE id = $1;', [id]);
+        if (promise.rows.length === 0) {
+            return res.status(404).send("This customer id does not exist!");
+        }
+  
+        promise.rows[0].birthday = dayjs(promise.rows[0].birthday).format('YYYY-MM-DD');
         res.send(promise.rows);
     }
     catch(error) {
-        return res.sendStatus(404);
+        return res.sendStatus(500);
     }
     
 })
@@ -195,11 +211,25 @@ app.post('/customers', async (req, res) => {
 
     try {
         const clientReq = req.body;
+        const isCorrectBody = customerSchema.validate(clientReq);
+        if (isCorrectBody.error) {
+            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+        }
+        const isNewCustomer = await connection.query(`
+            SELECT cpf 
+            FROM customers 
+            WHERE cpf = $1;
+        `, [clientReq.cpf]);
+
+        if (isNewCustomer.rows.length !== 0) {
+            return res.status(409).send("This cpf is already registered!");
+        }
+
         const promise = await connection.query('INSERT INTO customers (name, phone, cpf, birthday) VALUES ($1, $2, $3, $4);', [clientReq.name, clientReq.phone, clientReq.cpf, clientReq.birthday]);
         res.send(promise.rows);
     }
     catch(error) {
-        return res.sendStatus(404);
+        return res.sendStatus(500);
     }
     
 });
@@ -211,6 +241,19 @@ app.put('/customers/:id', async (req, res) => {
     try {
         const id = Number(req.params.id);
         const clientReq = req.body;
+        const isCorrectBody = customerSchema.validate(clientReq);
+        if (isCorrectBody.error) {
+            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+        }
+
+        const customer = await connection.query(`
+            SELECT * FROM customers
+            WHERE id = $1;
+        `, [id]);
+        if (customer.rows.length === 0) {
+            return res.status(404).send("This customer id does not exist!");
+        }
+
         const promise = await connection.query(`UPDATE customers SET 
         name = $1,
         phone = $2,
@@ -220,7 +263,7 @@ app.put('/customers/:id', async (req, res) => {
         res.send(promise.rows);
     }
     catch(error) {
-        return res.sendStatus(404);
+        return res.sendStatus(500);
     }
     
 });
