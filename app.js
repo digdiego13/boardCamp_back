@@ -20,17 +20,45 @@ const connection = new Pool(
       }
 )
 
+const newCategorySchema = Joi.object().length(1).keys({
+    name: Joi.string().alphanum().min(1).max(30).required()
+});
+
+const newGameSchema = Joi.object().length(5).keys({
+    name: Joi.string().min(1).max(30).required(),
+    image: Joi.string().min(1).required(),
+    stockTotal: Joi.number().integer().greater(0).required(),
+    categoryId: Joi.number().integer().positive().required(),
+    pricePerDay: Joi.number().integer().greater(0).required(),
+});
+
+const stringWithOnlyNumbers = /^[0-9]+$/;
+
+const customerSchema = Joi.object().length(4).keys({
+    name: Joi.string().min(1).max(30).required(),
+    phone: Joi.string().min(10).max(11).pattern(stringWithOnlyNumbers).required(),
+    cpf: Joi.string().length(11).pattern(stringWithOnlyNumbers).required(),
+    birthday: Joi.date().required(),
+});
+
+const rentalSchema = Joi.object().length(3).keys({
+    customerId: Joi.number().integer().positive().required(),
+    gameId: Joi.number().integer().positive().required(),
+    daysRented: Joi.number().integer().greater(0).required(),
+});
+
 // ------- Categories
 
 app.get('/categories', async (req, res) => {
     try{
         const promise = await connection.query('SELECT * FROM categories;');
-        console.log(promise.rows);
+        if (promise.rows.length === 0) {
+            return res.sendStatus(404);
+        }
         res.send(promise.rows);
     }
     catch{
-        console.log('nao foi possivel conectar');
-        return res.sendStatus(404);
+        return res.sendStatus(500);
     }
     
 })
@@ -40,14 +68,25 @@ app.post('/categories', async (req, res) => {
 
     try {
         const clientReq = req.body;
-        console.log(clientReq.name);
+        const isCorrectBody = newCategorySchema.validate(clientReq);
+        if (isCorrectBody.error) {
+            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+        }
+         
+        const isNewCategory = await connection.query(`
+            SELECT name 
+            FROM categories 
+            WHERE name iLIKE '${newCategory}';
+        `);
+
+        if (isNewCategory.rows.length !== 0) {
+            return res.status(409).send("This category already exists!");
+        }
         const promise = await connection.query('INSERT INTO categories (name) VALUES ($1);', [clientReq.name]);
-        console.log(promise.rows);
         res.sendStatus(200);
     }
-    catch(error) {
-        console.log(error);
-        return res.sendStatus(404);
+    catch(error) { 
+        return res.sendStatus(500);
     }
     
 })
@@ -60,18 +99,23 @@ app.get('/games', async (req, res) => {
 
     try {
         const promise = await connection.query(`
-        SELECT 
-            games.*, 
-            categories.name AS "categoryName" 
-        FROM games 
-        JOIN categories 
-        ON games."categoryId"=categories.id;`);
+        SELECT games.*, 
+                categories.name AS "categoryName" 
+            FROM games 
+            JOIN categories 
+                ON games."categoryId" = categories.id
+            ${req.query.name ? 
+                `WHERE games.name iLIKE '${req.query.name}%'` 
+                : ""};
+        `);
 
-        res.send(promise.rows);
+        if (promise.rows.length === 0) {
+            return res.sendStatus(404);
+          }
+          res.send(promise.rows);
     }
     catch(error) {
-        console.log(error);
-        return res.sendStatus(404);
+        return res.sendStatus(500);
     }
     
 })
@@ -81,12 +125,36 @@ app.post('/games', async (req, res) => {
 
     try {
         const clientReq = req.body;
+        const isCorrectBody = newGameSchema.validate(clientReq);
+        if (isCorrectBody.error) {
+            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+        }
+
+        const isNewGame = await connection.query(`
+        SELECT name 
+        FROM games 
+        WHERE name iLIKE '$1';
+    `, [clientReq.name]);
+    if (isNewGame.rows.length !== 0) {
+        return res.status(409).send("This game already exists!");
+    }
+
+    const isValidCategory = await connection.query(`
+        SELECT *
+        FROM categories 
+        WHERE id = $1;
+    `, [clientReq.categoryId]);
+
+    if (isValidCategory.rows.length === 0) {
+        return res.status(400).send("This category id does not exist!");
+    }
+
+
         const promise = await connection.query('INSERT INTO games (name, image, "stockTotal", "categoryId", "pricePerDay") VALUES ($1, $2, $3, $4, $5);', [clientReq.name, clientReq.image, clientReq.stockTotal, clientReq.categoryId, clientReq.pricePerDay]);
         res.send(promise.rows);
     }
     catch(error) {
-        console.log(error);
-        return res.sendStatus(404);
+        return res.sendStatus(500);
     }
     
 })
@@ -99,11 +167,9 @@ app.get('/customers', async (req, res) => {
 
     try{
         const promise = await connection.query('SELECT * FROM customers;');
-        console.log(promise.rows);
         res.send(promise.rows);
     }
     catch(error) {
-        console.log(error);
         return res.sendStatus(404);
     }
     
@@ -116,11 +182,9 @@ app.get('/customers/:id', async (req, res) => {
         const id = Number(req.params.id);
         console.log
         const promise = await connection.query('SELECT * FROM customers WHERE id = $1;', [id]);
-        console.log(promise.rows);
         res.send(promise.rows);
     }
     catch(error) {
-        console.log(error);
         return res.sendStatus(404);
     }
     
@@ -135,7 +199,6 @@ app.post('/customers', async (req, res) => {
         res.send(promise.rows);
     }
     catch(error) {
-        console.log(error);
         return res.sendStatus(404);
     }
     
@@ -157,7 +220,6 @@ app.put('/customers/:id', async (req, res) => {
         res.send(promise.rows);
     }
     catch(error) {
-        console.log(error);
         return res.sendStatus(404);
     }
     
@@ -216,7 +278,6 @@ app.get('/rentals', async (req, res) => {
         res.send(arrayRentals);
     }
     catch(error) {
-        console.log(error);
         return res.sendStatus(404);
     }
     
@@ -230,13 +291,10 @@ app.post('/rentals', async (req, res) => {
         const today = dayjs().format('YYYY-MM-DD');
         const pricePerDay = await connection.query('SELECT "pricePerDay" FROM games WHERE id = $1', [Number(clientReq.gameId)]);
         const originalPrice = Number(Number(clientReq.daysRented) * Number(pricePerDay.rows[0].pricePerDay));
-        console.log(originalPrice);
         const promise = await connection.query('INSERT INTO rentals ("customerId", "gameId", "rentDate", "daysRented", "returnDate", "originalPrice", "delayFee") VALUES ($1, $2, $3, $4, $5, $6, $7);', [clientReq.customerId, clientReq.gameId, today, clientReq.daysRented, null, originalPrice, null]);
-        console.log(promise.rows);
         res.send(promise.rows);
     }
     catch(error) {
-        console.log(error);
         return res.sendStatus(404);
     }
     
@@ -258,20 +316,28 @@ app.post('/rentals/:id/return', async (req, res) => {
         if(delayDays < 1 ) {
             delayFee = 0;
          }
-         console.log(delayFee);
          const promise = await connection.query(`UPDATE rentals SET 
          "returnDate" = $1,
          "delayFee" = $2
          WHERE id = $3;`, [today.format('YYYY-MM-DD'), delayFee, id]);
-         console.log(promise.rows);
         res.send(promise.rows);
     }
     catch(error) {
-        console.log(error);
         return res.sendStatus(404);
     }
     
 });
 
+app.delete('/rentals/:id', async (req, res) => {
+
+    try{
+        const id = Number(req.params.id);
+        const promise = await connection.query(`DELETE FROM rentals WHERE id = $1;`, [id]);
+        res.send(promise.rows);
+    }
+    catch(error) {
+        return res.sendStatus(404);
+    }
+})
 
 app.listen(4000);
