@@ -22,11 +22,11 @@ const connection = new Pool(
 )
 
 const newCategorySchema = Joi.object().keys({
-    name: Joi.string().alphanum().min(1).max(30).required()
+    name: Joi.string().alphanum().min(1).max(20).required()
 });
 
 const newGameSchema = Joi.object().keys({
-    name: Joi.string().min(1).max(30).required(),
+    name: Joi.string().min(1).max(20).required(),
     image: Joi.string().min(1).required(),
     stockTotal: Joi.number().integer().greater(0).required(),
     categoryId: Joi.number().integer().positive().required(),
@@ -61,7 +61,6 @@ app.get('/categories', async (req, res) => {
     catch{
         return res.sendStatus(500);
     }
-    
 })
 
 app.post('/categories', async (req, res) => {
@@ -71,17 +70,17 @@ app.post('/categories', async (req, res) => {
         const clientReq = req.body;
         const isCorrectBody = newCategorySchema.validate(clientReq);
         if (isCorrectBody.error) {
-            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+            return res.status(400).send(`${isCorrectBody.error.details[0].message}`);
         }
-         
+        const newCategory = clientReq.name;
         const isNewCategory = await connection.query(`
             SELECT name 
             FROM categories 
-            WHERE name iLIKE '${newCategory}';
-        `);
+            WHERE name iLIKE $1;
+        `, [newCategory]);
 
         if (isNewCategory.rows.length !== 0) {
-            return res.status(409).send("This category already exists!");
+            return res.status(409).send("This category exists, please, post other categorie name.");
         }
         const promise = await connection.query('INSERT INTO categories (name) VALUES ($1);', [clientReq.name]);
         res.sendStatus(200);
@@ -101,15 +100,14 @@ app.get('/games', async (req, res) => {
     try {
         const promise = await connection.query(`
         SELECT games.*, 
-                categories.name AS "categoryName" 
-            FROM games 
-            JOIN categories 
-                ON games."categoryId" = categories.id
-            ${req.query.name ? 
-                `WHERE games.name iLIKE '${req.query.name}%'` 
+            categories.name AS "categoryName" 
+        FROM games 
+        JOIN categories 
+        ON games."categoryId" = categories.id
+        ${req.query.name ? 
+            `WHERE games.name iLIKE '${req.query.name}%'` 
                 : ""};
-        `);
-
+        `);       
         if (promise.rows.length === 0) {
             return res.sendStatus(404);
           }
@@ -118,54 +116,44 @@ app.get('/games', async (req, res) => {
     catch(error) {
         return res.sendStatus(500);
     }
-    
 })
 
 app.post('/games', async (req, res) => {
-
-
     try {
         const clientReq = req.body;
         const isCorrectBody = newGameSchema.validate(clientReq);
         if (isCorrectBody.error) {
-            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+            return res.status(400).send(`${isCorrectBody.error.details[0].message}`);
         }
-
         const isNewGame = await connection.query(`
         SELECT name 
         FROM games 
-        WHERE name iLIKE '$1';
-    `, [clientReq.name]);
-    if (isNewGame.rows.length !== 0) {
-        return res.status(409).send("This game already exists!");
-    }
+        WHERE name iLIKE $1;
+        `, [clientReq.name]);
 
-    const isValidCategory = await connection.query(`
-        SELECT *
-        FROM categories 
-        WHERE id = $1;
-    `, [clientReq.categoryId]);
+        if (isNewGame.rows.length !== 0) {
+            return res.status(409).send("This game already exists!");
+        }   
+        const isValidCategory = await connection.query(`
+            SELECT *
+            FROM categories 
+            WHERE id = $1;
+        `, [clientReq.categoryId]);
 
-    if (isValidCategory.rows.length === 0) {
-        return res.status(400).send("This category id does not exist!");
-    }
-
-
+        if (isValidCategory.rows.length === 0) {
+            return res.status(400).send("This category id does not exist!");
+        }
         const promise = await connection.query('INSERT INTO games (name, image, "stockTotal", "categoryId", "pricePerDay") VALUES ($1, $2, $3, $4, $5);', [clientReq.name, clientReq.image, clientReq.stockTotal, clientReq.categoryId, clientReq.pricePerDay]);
         res.send(promise.rows);
     }
     catch(error) {
         return res.sendStatus(500);
     }
-    
 })
 
 // ------- customers
 
-
 app.get('/customers', async (req, res) => {
-
-
     try{
         const promise = await connection.query(`
         SELECT * FROM customers
@@ -173,7 +161,6 @@ app.get('/customers', async (req, res) => {
                 `WHERE customers.cpf LIKE '${req.query.cpf}%'` 
                 : ""};
         `);
-
         if (promise.rows.length === 0) {
             return res.sendStatus(404);
         }
@@ -185,36 +172,29 @@ app.get('/customers', async (req, res) => {
     catch(error) {
         return res.sendStatus(500);
     }
-    
 })
 
 app.get('/customers/:id', async (req, res) => {
-
-
     try{
         const id = Number(req.params.id);
         const promise = await connection.query('SELECT * FROM customers WHERE id = $1;', [id]);
         if (promise.rows.length === 0) {
-            return res.status(404).send("This customer id does not exist!");
+            return res.status(404).send("Customer not exists.");
         }
-  
         promise.rows[0].birthday = dayjs(promise.rows[0].birthday).format('YYYY-MM-DD');
         res.send(promise.rows);
     }
     catch(error) {
         return res.sendStatus(500);
     }
-    
 })
 
 app.post('/customers', async (req, res) => {
-
-
     try {
         const clientReq = req.body;
         const isCorrectBody = customerSchema.validate(clientReq);
         if (isCorrectBody.error) {
-            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+            return res.status(400).send(`${isCorrectBody.error.details[0].message}`);
         }
         const isNewCustomer = await connection.query(`
             SELECT cpf 
@@ -225,28 +205,22 @@ app.post('/customers', async (req, res) => {
         if (isNewCustomer.rows.length !== 0) {
             return res.status(409).send("This cpf is already registered!");
         }
-
         const promise = await connection.query('INSERT INTO customers (name, phone, cpf, birthday) VALUES ($1, $2, $3, $4);', [clientReq.name, clientReq.phone, clientReq.cpf, clientReq.birthday]);
         res.send(promise.rows);
     }
     catch(error) {
         return res.sendStatus(500);
     }
-    
 });
 
-
 app.put('/customers/:id', async (req, res) => {
-
-
     try {
         const id = Number(req.params.id);
         const clientReq = req.body;
         const isCorrectBody = customerSchema.validate(clientReq);
         if (isCorrectBody.error) {
-            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+            return res.status(400).send(`${isCorrectBody.error.details[0].message}`);
         }
-
         const customer = await connection.query(`
             SELECT * FROM customers
             WHERE id = $1;
@@ -254,7 +228,6 @@ app.put('/customers/:id', async (req, res) => {
         if (customer.rows.length === 0) {
             return res.status(404).send("This customer id does not exist!");
         }
-
         const promise = await connection.query(`UPDATE customers SET 
         name = $1,
         phone = $2,
@@ -266,16 +239,11 @@ app.put('/customers/:id', async (req, res) => {
     catch(error) {
         return res.sendStatus(500);
     }
-    
 });
-
 
 // ------- rentals
 
-
 app.get('/rentals', async (req, res) => {
-
-
     try{
         const promise = await connection.query(`
         SELECT rentals.*, 
@@ -300,7 +268,6 @@ app.get('/rentals', async (req, res) => {
             : ""};`
         );
 
-        
         const arrayRentals = promise.rows.map(rental => {
 
             const newRentalObject = {
@@ -322,34 +289,27 @@ app.get('/rentals', async (req, res) => {
                   categoryId: rental.categoryId,
                   categoryName: rental.categoryName
                 }
-              }
+            }
             return newRentalObject;
         })
-
-        if (rentals.rows.length === 0) {
+        if (arrayRentals.length === 0) {
             return res.sendStatus(404);
           }
-        
         res.send(arrayRentals);
     }
     catch(error) {
         return res.sendStatus(500);
     }
-    
 })
 
 app.post('/rentals', async (req, res) => {
-
-
     try {
         const clientReq = req.body;
         const today = dayjs().format('YYYY-MM-DD');
-
         const isCorrectBody = rentalSchema.validate(clientReq);
         if (isCorrectBody.error) {
-            return res.status(400).send(`Bad Request: ${isCorrectBody.error.details[0].message}`);
+            return res.status(400).send(`${isCorrectBody.error.details[0].message}`);
         }
-
         const isValidCustomerId = await connection.query(`
             SELECT id
             FROM customers
@@ -369,11 +329,9 @@ app.post('/rentals', async (req, res) => {
         if (isValidGameId.rows.length === 0) {
             return res.status(400).send("Invalid game id");
         }
-
-
         const thisGame = await connection.query('SELECT "pricePerDay", "stockTotal" FROM games WHERE id = $1', [Number(clientReq.gameId)]);
         const originalPrice = Number(Number(clientReq.daysRented) * Number(thisGame.rows[0].pricePerDay));
-        const numberOfGames = chosenGame.rows[0].stockTotal;
+        const numberOfGames = thisGame.rows[0].stockTotal;
 
         const listOfRentals = await connection.query(`
             SELECT id
@@ -396,8 +354,6 @@ app.post('/rentals', async (req, res) => {
 });
 
 app.post('/rentals/:id/return', async (req, res) => {
-
-
     try {
         const id = Number(req.params.id);
         const today = dayjs()
@@ -409,7 +365,6 @@ app.post('/rentals/:id/return', async (req, res) => {
         if (isValidRentalId.rows.length === 0) {
             return res.status(404).send("Invalid rental id");
         }
-
         const isRentalAlreadyFinished = await connection.query(`
             SELECT "returnDate"
             FROM rentals
@@ -442,18 +397,16 @@ app.post('/rentals/:id/return', async (req, res) => {
 });
 
 app.delete('/rentals/:id', async (req, res) => {
-
     try{
         const id = Number(req.params.id);
         const isValidRentalId = await connection.query(`
             SELECT id
             FROM rentals
-            WHERE rentals.id = $;
+            WHERE rentals.id = $1;
         `, [id])
         if (isValidRentalId.rows.length === 0) {
             return res.status(404).send("Invalid rental id");
         }
-
         const isRentalAlreadyFinished = await connection.query(`
             SELECT "returnDate"
             FROM rentals
